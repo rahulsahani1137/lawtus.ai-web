@@ -1,0 +1,17 @@
+# Bun configuration for lawtus.ai-web
+
+[install]
+# Use a lockfile for consistent installs
+saveAll = true
+
+[install.scopes]
+# Optional: configure private registry scopes here if needed
+
+[test]
+# Test configuration
+coverage = false
+coverageDir = "coverage"
+
+[run]
+# Shell for running scripts
+shell = "bun"
