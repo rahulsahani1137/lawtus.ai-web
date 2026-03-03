@@ -151,6 +151,7 @@ async function apiRequest<T>(
     try {
         const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             ...options,
+            credentials: "include", // Important for CORS with credentials
             headers: {
                 "Content-Type": "application/json",
                 ...options.headers,
