@@ -1,29 +1,31 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "@/components/ui/sonner";
-import { QueryProvider } from "@/providers";
-import { AuthProvider } from "@/components/auth";
-import "./globals.css";
+import type { Metadata } from 'next'
+import { Geist, Geist_Mono } from 'next/font/google'
+import { Toaster } from '@/components/ui/sonner'
+import { QueryProvider } from '@/providers'
+import { AuthProvider } from '@/components/providers/auth-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import './globals.css'
 
 const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
+})
 
 const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+})
 
 export const metadata: Metadata = {
-  title: "Lawtus AI",
-  description: "AI-powered legal assistant",
-};
+  title: 'Lawtus AI — Indian Legal Document Drafting',
+  description:
+    'AI-powered legal document drafting platform for Indian courts. Draft bail applications, writ petitions, written statements, and more.',
+}
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: React.ReactNode
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -32,11 +34,13 @@ export default function RootLayout({
       >
         <QueryProvider>
           <AuthProvider>
-            {children}
-            <Toaster position="top-center" richColors />
+            <TooltipProvider>
+              {children}
+              <Toaster position="top-center" richColors />
+            </TooltipProvider>
           </AuthProvider>
         </QueryProvider>
       </body>
     </html>
-  );
+  )
 }
