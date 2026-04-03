@@ -1,13 +1,19 @@
 import Cookies from 'js-cookie'
+import { getAuthToken } from '@/store/authStore'
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL
 
-let _accessToken: string | null = null
+export const setSessionIdCookie = (sessionId: string) =>
+    Cookies.set('lawtus_session', sessionId, {
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        expires: 30,
+    })
 
-export const setAccessToken = (t: string | null) => {
-    _accessToken = t
-}
-export const getAccessToken = () => _accessToken
+export const getSessionIdCookie = () => Cookies.get('lawtus_session')
+
+// Use auth store for token management
+export const getAccessToken = () => getAuthToken()
 
 export const setRefreshTokenCookie = (token: string) =>
     Cookies.set('lawtus_refresh', token, {
@@ -17,7 +23,10 @@ export const setRefreshTokenCookie = (token: string) =>
     })
 
 export const getRefreshTokenCookie = () => Cookies.get('lawtus_refresh')
-export const clearAuthCookies = () => Cookies.remove('lawtus_refresh')
+export const clearAuthCookies = () => {
+    Cookies.remove('lawtus_refresh')
+    Cookies.remove('lawtus_session')
+}
 
 export class APIError extends Error {
     constructor(
@@ -33,16 +42,17 @@ export class APIError extends Error {
 
 async function attemptRefresh(): Promise<string | null> {
     const rt = getRefreshTokenCookie()
-    if (!rt) return null
+    const sid = getSessionIdCookie()
+    if (!rt || !sid) return null
     try {
         const res = await fetch(`${BASE_URL}/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken: rt }),
+            body: JSON.stringify({ refreshToken: rt, sessionId: sid }),
         })
         if (!res.ok) return null
         const data = await res.json()
-        setAccessToken(data.accessToken)
+        // Token is now managed by auth store
         setRefreshTokenCookie(data.refreshToken)
         return data.accessToken
     } catch {
@@ -51,9 +61,10 @@ async function attemptRefresh(): Promise<string | null> {
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
+    const token = getAccessToken()
     return {
         'Content-Type': 'application/json',
-        ...(_accessToken ? { Authorization: `Bearer ${_accessToken}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(extra ?? {}),
     }
 }
@@ -82,13 +93,15 @@ export async function apiFetch<T>(
 
     let res = await makeReq()
 
-    if (res.status === 401 && _accessToken) {
+    if (res.status === 401) {
         const newToken = await attemptRefresh()
         if (newToken) {
-            res = await makeReq()
+            res = await fetch(`${BASE_URL}${path}`, {
+                ...init,
+                headers: authHeaders(init.headers as Record<string, string>),
+            })
         } else {
             clearAuthCookies()
-            setAccessToken(null)
             if (typeof window !== 'undefined') window.location.href = '/auth/login'
             throw new APIError('SESSION_EXPIRED', 'Session expired', 401)
         }
@@ -102,8 +115,9 @@ export async function apiUpload<T>(
     path: string,
     form: FormData,
 ): Promise<T> {
-    const headers: Record<string, string> = _accessToken
-        ? { Authorization: `Bearer ${_accessToken}` }
+    const token = getAccessToken()
+    const headers: Record<string, string> = token
+        ? { Authorization: `Bearer ${token}` }
         : {}
 
     let res = await fetch(`${BASE_URL}${path}`, {
@@ -112,7 +126,7 @@ export async function apiUpload<T>(
         body: form,
     })
 
-    if (res.status === 401 && _accessToken) {
+    if (res.status === 401) {
         const newToken = await attemptRefresh()
         if (newToken) {
             headers.Authorization = `Bearer ${newToken}`
@@ -141,3 +155,62 @@ export async function apiStream(
     if (!res.ok) throw await parseError(res)
     return res
 }
+
+// ============================================
+// Cases API
+// ============================================
+
+export interface Case {
+    id: string;
+    title: string;
+    draftType: 'bail' | 'injunction' | 'writ' | 'other';
+    status: 'interrogating' | 'chronology' | 'contradiction_found' | 'drafting' | 'complete';
+    rawFacts?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export const casesAPI = {
+    async getCase(caseId: string): Promise<Case> {
+        return apiFetch<Case>(`/cases/${caseId}`, {
+            method: 'GET',
+        });
+    },
+
+    async listCases(): Promise<Case[]> {
+        return apiFetch<Case[]>('/cases', {
+            method: 'GET',
+        });
+    },
+
+    async createCase(data: {
+        title: string;
+        draftType: 'bail' | 'injunction' | 'writ' | 'other';
+        rawFacts?: string;
+    }): Promise<Case> {
+        return apiFetch<Case>('/cases', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updateCase(
+        caseId: string,
+        data: {
+            title?: string;
+            status?: 'interrogating' | 'chronology' | 'contradiction_found' | 'drafting' | 'complete';
+            rawFacts?: string;
+        }
+    ): Promise<Case> {
+        return apiFetch<Case>(`/cases/${caseId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async deleteCase(caseId: string): Promise<{ success: boolean }> {
+        return apiFetch<{ success: boolean }>(`/cases/${caseId}`, {
+            method: 'DELETE',
+        });
+    },
+};

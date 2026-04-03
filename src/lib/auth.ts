@@ -149,13 +149,31 @@ async function apiRequest<T>(
     options: RequestInit = {}
 ): Promise<T> {
     try {
+        // Get access token from cookies if available (for authenticated requests)
+        let accessToken: string | null = null;
+        if (typeof document !== 'undefined') {
+            // Client-side: get from cookies
+            const cookies = document.cookie.split(';');
+            const tokenCookie = cookies.find(c => c.trim().startsWith('accessToken='));
+            if (tokenCookie) {
+                accessToken = tokenCookie.split('=')[1];
+            }
+        }
+
+        const headers: HeadersInit = {
+            "Content-Type": "application/json",
+            ...options.headers,
+        };
+
+        // Add Authorization header if we have a token and it's not already set
+        if (accessToken && !headers.Authorization) {
+            headers.Authorization = `Bearer ${accessToken}`;
+        }
+
         const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             ...options,
             credentials: "include", // Important for CORS with credentials
-            headers: {
-                "Content-Type": "application/json",
-                ...options.headers,
-            },
+            headers,
         });
 
         if (!response.ok) {

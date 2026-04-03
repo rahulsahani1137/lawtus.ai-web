@@ -1,30 +1,21 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import Cookies from "js-cookie";
 import type { User, Tokens } from "@/lib/auth";
-import { refreshToken as refreshTokenAPI } from "@/lib/auth";
+import { refreshToken as refreshTokenAPI, getMe } from "@/lib/auth";
 
-// Helper to decode JWT and extract sessionId
-function decodeJwt(token: string): { sessionId: string; exp: number } | null {
-    try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-            atob(base64)
-                .split('')
-                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                .join('')
-        );
-        return JSON.parse(jsonPayload);
-    } catch {
-        return null;
-    }
-}
+/**
+ * PASETO tokens cannot be decoded client-side like JWT
+ * They are cryptographically signed and must be verified server-side
+ * We store sessionId separately instead of extracting from token
+ */
 
 interface AuthState {
     // User state
     user: User | null;
     isAuthenticated: boolean;
     isInitialized: boolean;
+    isLoading: boolean;
 
     // Token state (accessToken in memory, refreshToken persisted)
     accessToken: string | null;
@@ -38,12 +29,16 @@ interface AuthState {
 
     // Actions
     setUser: (user: User | null) => void;
+    setSessionId: (sessionId: string) => void;
     setTokens: (tokens: Tokens) => void;
+    setAuth: (accessToken: string, refreshToken: string, user: User) => void;
     setPendingEmail: (email: string, expiresInSeconds: number) => void;
     clearPendingEmail: () => void;
     clearAuth: () => void;
     setInitialized: (initialized: boolean) => void;
+    setLoading: (loading: boolean) => void;
     refreshAccessToken: () => Promise<boolean>;
+    initialize: () => Promise<void>;
 }
 
 // Token refresh interval (refresh 1 minute before expiry)
@@ -59,6 +54,7 @@ export const useAuthStore = create<AuthState>()(
             user: null,
             isAuthenticated: false,
             isInitialized: false,
+            isLoading: true,
             accessToken: null,
             refreshToken: null,
             sessionId: null,
@@ -73,17 +69,29 @@ export const useAuthStore = create<AuthState>()(
                     isAuthenticated: !!user,
                 }),
 
+            setSessionId: (sessionId) =>
+                set({
+                    sessionId,
+                }),
+
             setTokens: (tokens) => {
                 const expiresAt = Date.now() + tokens.expiresIn * 1000;
 
-                // Extract sessionId from the access token JWT
-                const decoded = decodeJwt(tokens.accessToken);
-                const sessionId = decoded?.sessionId || null;
+                // Write tokens to cookies (using names expected by middleware)
+                Cookies.set('accessToken', tokens.accessToken, {
+                    expires: 7,
+                    sameSite: 'strict',
+                    secure: process.env.NODE_ENV === 'production',
+                });
+                Cookies.set('refreshToken', tokens.refreshToken, {
+                    expires: 30,
+                    sameSite: 'strict',
+                    secure: process.env.NODE_ENV === 'production',
+                });
 
                 set({
                     accessToken: tokens.accessToken,
                     refreshToken: tokens.refreshToken,
-                    sessionId,
                     tokenExpiresAt: expiresAt,
                 });
 
@@ -99,6 +107,17 @@ export const useAuthStore = create<AuthState>()(
                         get().refreshAccessToken();
                     }, refreshTime);
                 }
+            },
+
+            setAuth: (accessToken, refreshToken, user) => {
+                const tokens: Tokens = {
+                    accessToken,
+                    refreshToken,
+                    expiresIn: 900, // 15 minutes (matches PASETO config)
+                };
+                get().setTokens(tokens);
+                get().setUser(user);
+                set({ isLoading: false });
             },
 
             setPendingEmail: (email, expiresInSeconds) =>
@@ -120,6 +139,13 @@ export const useAuthStore = create<AuthState>()(
                     refreshTimeoutId = null;
                 }
 
+                // Clear cookies (both old and new names for compatibility)
+                Cookies.remove('accessToken');
+                Cookies.remove('refreshToken');
+                Cookies.remove('lawtus_token');
+                Cookies.remove('lawtus_refresh');
+                Cookies.remove('lawtus_session');
+
                 set({
                     user: null,
                     isAuthenticated: false,
@@ -129,15 +155,25 @@ export const useAuthStore = create<AuthState>()(
                     tokenExpiresAt: null,
                     pendingEmail: null,
                     otpExpiresAt: null,
+                    isLoading: false,
                 });
             },
 
             setInitialized: (initialized) => set({ isInitialized: initialized }),
 
+            setLoading: (loading) => set({ isLoading: loading }),
+
             refreshAccessToken: async () => {
                 const { refreshToken: currentRefreshToken, sessionId: currentSessionId } = get();
 
-                if (!currentRefreshToken || !currentSessionId) {
+                if (!currentRefreshToken) {
+                    get().clearAuth();
+                    return false;
+                }
+
+                // If no sessionId, we can't refresh - clear auth
+                if (!currentSessionId) {
+                    console.warn('No sessionId available for token refresh');
                     get().clearAuth();
                     return false;
                 }
@@ -146,14 +182,21 @@ export const useAuthStore = create<AuthState>()(
                     const response = await refreshTokenAPI(currentRefreshToken, currentSessionId);
                     const expiresAt = Date.now() + response.expiresIn * 1000;
 
-                    // Extract new sessionId from the new access token
-                    const decoded = decodeJwt(response.accessToken);
-                    const newSessionId = decoded?.sessionId || currentSessionId;
+                    // Update cookies (using names expected by middleware)
+                    Cookies.set('accessToken', response.accessToken, {
+                        expires: 7,
+                        sameSite: 'strict',
+                        secure: process.env.NODE_ENV === 'production',
+                    });
+                    Cookies.set('refreshToken', response.refreshToken, {
+                        expires: 30,
+                        sameSite: 'strict',
+                        secure: process.env.NODE_ENV === 'production',
+                    });
 
                     set({
                         accessToken: response.accessToken,
                         refreshToken: response.refreshToken,
-                        sessionId: newSessionId,
                         tokenExpiresAt: expiresAt,
                     });
 
@@ -171,10 +214,106 @@ export const useAuthStore = create<AuthState>()(
                     }
 
                     return true;
-                } catch {
+                } catch (error) {
+                    console.error('Token refresh failed:', error);
                     // If refresh fails, clear auth state
                     get().clearAuth();
                     return false;
+                }
+            },
+
+            initialize: async () => {
+                if (get().isInitialized) return;
+
+                set({ isLoading: true });
+
+                // Try to restore from cookies (check both old and new names)
+                const tokenFromCookie = Cookies.get('accessToken') || Cookies.get('lawtus_token');
+                const refreshFromCookie = Cookies.get('refreshToken') || Cookies.get('lawtus_refresh');
+
+                if (!tokenFromCookie && !refreshFromCookie) {
+                    set({
+                        isInitialized: true,
+                        isLoading: false,
+                        isAuthenticated: false,
+                    });
+                    return;
+                }
+
+                // If we have a refresh token but no access token, try to refresh
+                if (refreshFromCookie && !tokenFromCookie) {
+                    // Check if we have sessionId in localStorage
+                    const storedState = get();
+                    if (!storedState.sessionId) {
+                        console.warn('Refresh token found but no sessionId - clearing auth');
+                        get().clearAuth();
+                        set({ isInitialized: true, isLoading: false });
+                        return;
+                    }
+                    
+                    set({ refreshToken: refreshFromCookie });
+                    const refreshed = await get().refreshAccessToken();
+                    if (refreshed) {
+                        // Validate the new token
+                        try {
+                            const { user, session } = await getMe(get().accessToken!);
+                            set({
+                                user,
+                                sessionId: session.id,
+                                isAuthenticated: true,
+                                isInitialized: true,
+                                isLoading: false,
+                            });
+                        } catch {
+                            get().clearAuth();
+                            set({ isInitialized: true, isLoading: false });
+                        }
+                    } else {
+                        set({ isInitialized: true, isLoading: false });
+                    }
+                    return;
+                }
+
+                // If we have an access token, validate it
+                if (tokenFromCookie) {
+                    set({ accessToken: tokenFromCookie });
+                    try {
+                        const { user, session } = await getMe(tokenFromCookie);
+                        set({
+                            user,
+                            sessionId: session.id,
+                            isAuthenticated: true,
+                            isInitialized: true,
+                            isLoading: false,
+                        });
+                    } catch {
+                        // Token invalid, try refresh
+                        if (refreshFromCookie) {
+                            set({ refreshToken: refreshFromCookie });
+                            const refreshed = await get().refreshAccessToken();
+                            if (refreshed) {
+                                try {
+                                    const { user, session } = await getMe(get().accessToken!);
+                                    set({
+                                        user,
+                                        sessionId: session.id,
+                                        isAuthenticated: true,
+                                        isInitialized: true,
+                                        isLoading: false,
+                                    });
+                                } catch {
+                                    get().clearAuth();
+                                    set({ isInitialized: true, isLoading: false });
+                                }
+                            } else {
+                                get().clearAuth();
+                                set({ isInitialized: true, isLoading: false });
+                            }
+                        } else {
+                            get().clearAuth();
+                            set({ isInitialized: true, isLoading: false });
+                        }
+                    }
                 }
             },
         }),
@@ -203,12 +342,33 @@ export const useAuthStore = create<AuthState>()(
     )
 );
 
+// Plain getter for use outside React components (e.g., API interceptors)
+export const getAuthToken = (): string | null => {
+    return useAuthStore.getState().accessToken || Cookies.get('accessToken') || Cookies.get('lawtus_token') || null;
+};
+
 // Selector hooks for better performance
 export const useUser = () => useAuthStore((state) => state.user);
 export const useIsAuthenticated = () =>
     useAuthStore((state) => state.isAuthenticated);
 export const useIsInitialized = () =>
     useAuthStore((state) => state.isInitialized);
+export const useAuthLoading = () => useAuthStore((state) => state.isLoading);
 export const useAccessToken = () => useAuthStore((state) => state.accessToken);
 export const useSessionId = () => useAuthStore((state) => state.sessionId);
 export const usePendingEmail = () => useAuthStore((state) => state.pendingEmail);
+
+// Export AuthActions for backward compatibility
+export const AuthActions = {
+    setTokens: (accessToken: string, refreshToken: string, user: User) => {
+        useAuthStore.getState().setAuth(accessToken, refreshToken, user);
+    },
+    logout: () => {
+        useAuthStore.getState().clearAuth();
+    },
+    initialize: async () => {
+        await useAuthStore.getState().initialize();
+    },
+};
+
+export default useAuthStore;

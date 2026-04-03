@@ -72,6 +72,7 @@ export function useVerifyOTP() {
     const router = useRouter();
     const setUser = useAuthStore((state) => state.setUser);
     const setTokens = useAuthStore((state) => state.setTokens);
+    const setSessionId = useAuthStore((state) => state.setSessionId);
     const clearPendingEmail = useAuthStore((state) => state.clearPendingEmail);
     const pendingEmail = useAuthStore((state) => state.pendingEmail);
 
@@ -81,9 +82,19 @@ export function useVerifyOTP() {
                 throw new Error("No email pending verification");
             }
             return verifyOTP(pendingEmail, otp);
-        }, onSuccess: (response) => {
+        }, onSuccess: async (response) => {
             setUser(response.user);
             setTokens(response.tokens);
+            
+            // Fetch sessionId from /auth/me
+            try {
+                const { getMe } = await import("@/lib/auth");
+                const meResponse = await getMe(response.tokens.accessToken);
+                setSessionId(meResponse.session.id);
+            } catch (error) {
+                console.error("Failed to fetch session info:", error);
+            }
+            
             clearPendingEmail();
             toast.success("Successfully signed in!");
 
@@ -91,7 +102,7 @@ export function useVerifyOTP() {
             if (response.isNewUser) {
                 router.push("/onboarding");
             } else {
-                router.push("/c");
+                router.push("/dashboard");
             }
         },
         onError: (error) => {
@@ -111,6 +122,7 @@ export function useVerifyRegistration() {
     const router = useRouter();
     const setUser = useAuthStore((state) => state.setUser);
     const setTokens = useAuthStore((state) => state.setTokens);
+    const setSessionId = useAuthStore((state) => state.setSessionId);
     const clearPendingEmail = useAuthStore((state) => state.clearPendingEmail);
     const pendingEmail = useAuthStore((state) => state.pendingEmail);
 
@@ -121,9 +133,19 @@ export function useVerifyRegistration() {
             }
             return verifyRegistration(pendingEmail, otp);
         },
-        onSuccess: (response) => {
+        onSuccess: async (response) => {
             setUser(response.user);
             setTokens(response.tokens);
+            
+            // Fetch sessionId from /auth/me
+            try {
+                const { getMe } = await import("@/lib/auth");
+                const meResponse = await getMe(response.tokens.accessToken);
+                setSessionId(meResponse.session.id);
+            } catch (error) {
+                console.error("Failed to fetch session info:", error);
+            }
+            
             clearPendingEmail();
             toast.success("Account created successfully!");
 

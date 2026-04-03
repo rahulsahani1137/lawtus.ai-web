@@ -1,11 +1,17 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
+import { useAuthStore } from "@/store/authStore";
 import { AuthLayout, EmailForm, OTPInput } from "@/components/auth";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isInitialized = useAuthStore((state) => state.isInitialized);
+  
   const {
     pendingEmail,
     otpExpiresAt,
@@ -16,6 +22,31 @@ export default function LoginPage() {
     resendOTP,
     cancelOTP,
   } = useAuth();
+
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (isInitialized && isAuthenticated) {
+      router.replace("/dashboard");
+    }
+  }, [isInitialized, isAuthenticated, router]);
+
+  // Show loading while checking auth status
+  if (!isInitialized) {
+    return (
+      <AuthLayout>
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-pulse text-muted-foreground">
+            Loading...
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  // Don't render login form if already authenticated
+  if (isAuthenticated) {
+    return null;
+  }
 
   return (
     <AuthLayout>

@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
     LayoutDashboard,
     FilePlus,
@@ -24,11 +25,11 @@ import {
 } from '@/components/ui/sidebar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { useUser } from '@/stores/auth'
-import { AuthActions } from '@/stores/auth'
+import { useUser, AuthActions } from '@/store/authStore'
 import { logoutCurrent } from '@/lib/requests/auth'
 import { clearRefreshTokenAction } from '@/actions/auth'
 import { toast } from 'sonner'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 const mainNavItems = [
     {
@@ -123,10 +124,10 @@ export function AppSidebar() {
                                         isActive={isActive(item.href)}
                                         tooltip={item.title}
                                     >
-                                        <a href={item.href}>
+                                        <Link href={item.href}>
                                             <item.icon className="h-4 w-4" />
                                             <span>{item.title}</span>
-                                        </a>
+                                        </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             ))}
@@ -145,10 +146,10 @@ export function AppSidebar() {
                                         isActive={isActive(item.href)}
                                         tooltip={item.title}
                                     >
-                                        <a href={item.href}>
+                                        <Link href={item.href}>
                                             <item.icon className="h-4 w-4" />
                                             <span>{item.title}</span>
-                                        </a>
+                                        </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             ))}
@@ -172,15 +173,18 @@ export function AppSidebar() {
                             {user?.email}
                         </p>
                     </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0"
-                        onClick={handleLogout}
-                        title="Logout"
-                    >
-                        <LogOut className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <ThemeToggle />
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={handleLogout}
+                            title="Logout"
+                        >
+                            <LogOut className="h-4 w-4" />
+                        </Button>
+                    </div>
                 </div>
             </SidebarFooter>
         </Sidebar>

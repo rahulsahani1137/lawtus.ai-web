@@ -32,7 +32,7 @@ export function RecentDrafts() {
     const recentDrafts = drafts?.slice(0, 5) ?? []
 
     return (
-        <Card>
+        <Card className="shadow-none border border-border">
             <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                     <CardTitle className="text-lg">Recent Drafts</CardTitle>

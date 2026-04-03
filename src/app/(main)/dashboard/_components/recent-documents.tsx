@@ -24,8 +24,8 @@ function timeAgo(dateStr: string) {
 }
 
 function FileTypeIcon({ type }: { type: string }) {
-    if (type === 'image') return <Image className="h-4 w-4 text-green-600" />
-    return <FileText className="h-4 w-4 text-blue-600" />
+    if (type === 'image') return <Image className="h-4 w-4 text-muted-foreground" />
+    return <FileText className="h-4 w-4 text-muted-foreground" />
 }
 
 export function RecentDocuments() {
@@ -34,7 +34,7 @@ export function RecentDocuments() {
     const recentDocs = documents?.slice(0, 3) ?? []
 
     return (
-        <Card>
+        <Card className="shadow-none border border-border">
             <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                     <CardTitle className="text-lg">Recent Documents</CardTitle>

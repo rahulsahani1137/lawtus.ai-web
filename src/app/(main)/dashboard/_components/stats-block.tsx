@@ -29,17 +29,17 @@ export function StatsBlock() {
     return (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {stats.map((stat) => (
-                <Card key={stat.key}>
+                <Card key={stat.key} className="shadow-none border border-border">
                     <CardContent className="p-4 flex items-center gap-4">
-                        <div className={`p-3 rounded-xl ${stat.bg}`}>
-                            <stat.icon className={`h-5 w-5 ${stat.color}`} />
+                        <div className="flex bg-muted/50 items-center justify-center p-2 rounded-md border border-border">
+                            <stat.icon className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div>
-                            <p className="text-sm text-muted-foreground">{stat.label}</p>
+                            <p className="text-sm font-medium text-muted-foreground">{stat.label}</p>
                             {isLoading ? (
-                                <Skeleton className="h-7 w-12 mt-1" />
+                                <Skeleton className="h-6 w-12 mt-1" />
                             ) : (
-                                <p className="text-2xl font-bold">{counts[stat.key]}</p>
+                                <p className="text-xl font-semibold mt-0.5">{counts[stat.key]}</p>
                             )}
                         </div>
                     </CardContent>

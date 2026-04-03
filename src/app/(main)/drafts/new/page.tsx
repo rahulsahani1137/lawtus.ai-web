@@ -1,110 +1,152 @@
 'use client'
 
-import { Suspense, useState } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { WizardStepper } from '@/app/(main)/drafts/new/_components/wizard-stepper'
-import { StepCaseDetails } from '@/app/(main)/drafts/new/_components/step-case-details'
-import { StepFactCollection } from '@/app/(main)/drafts/new/_components/step-fact-collection'
-import { StepGenerate } from '@/app/(main)/drafts/new/_components/step-generate'
-import { Skeleton } from '@/components/ui/skeleton'
-import type { CaseType, DraftGenerateInput } from '@/types/draft'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useMutation } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { Scale, FileText, Gavel, Loader2 } from 'lucide-react'
 
-interface CaseDetails {
-    caseType: CaseType
-    court: string
-    clientName: string
-    opposingParty: string
-    reliefSought: string
-    documentIds: string[]
-    additionalContext: string
+import { CLDIBreadcrumb } from '@/components/layout/cldi-breadcrumb'
+import { DraftTypeCard } from '@/components/drafts/draft-type-card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { casesAPI } from '@/lib/api'
+
+type DraftType = 'bail' | 'injunction' | 'writ'
+
+interface DraftTypeOption {
+  type: DraftType
+  icon: typeof Scale
+  title: string
+  description: string
 }
 
-function NewDraftWizard() {
-    const searchParams = useSearchParams()
-    const router = useRouter()
-    const [currentStep, setCurrentStep] = useState(1)
-    const [caseDetails, setCaseDetails] = useState<CaseDetails | null>(null)
-    const [collectedFacts, setCollectedFacts] = useState('')
-
-    const preselectedType = searchParams.get('type') as CaseType | null
-    const preselectedDocId = searchParams.get('docId')
-
-    const handleCaseDetailsComplete = (details: CaseDetails) => {
-        setCaseDetails(details)
-        setCurrentStep(2)
-    }
-
-    const handleFactsComplete = (facts: string) => {
-        setCollectedFacts(facts)
-        setCurrentStep(3)
-    }
-
-    const handleGenerateSuccess = (draftId: string) => {
-        router.push(`/drafts/${draftId}`)
-    }
-
-    const generateInput: DraftGenerateInput | null = caseDetails
-        ? {
-            caseType: caseDetails.caseType,
-            clientName: caseDetails.clientName,
-            opposingParty: caseDetails.opposingParty || undefined,
-            court: caseDetails.court,
-            reliefSought: caseDetails.reliefSought,
-            facts: collectedFacts,
-            documentIds:
-                caseDetails.documentIds.length > 0
-                    ? caseDetails.documentIds
-                    : undefined,
-            additionalContext: caseDetails.additionalContext || undefined,
-        }
-        : null
-
-    return (
-        <>
-            <WizardStepper currentStep={currentStep} />
-
-            {currentStep === 1 && (
-                <StepCaseDetails
-                    onComplete={handleCaseDetailsComplete}
-                    defaultCaseType={preselectedType}
-                    defaultDocId={preselectedDocId}
-                />
-            )}
-
-            {currentStep === 2 && (
-                <StepFactCollection
-                    caseDetails={caseDetails!}
-                    onComplete={handleFactsComplete}
-                    onBack={() => setCurrentStep(1)}
-                />
-            )}
-
-            {currentStep === 3 && generateInput && (
-                <StepGenerate
-                    input={generateInput}
-                    caseDetails={caseDetails!}
-                    onSuccess={handleGenerateSuccess}
-                    onBack={() => setCurrentStep(2)}
-                />
-            )}
-        </>
-    )
-}
+const draftTypes: DraftTypeOption[] = [
+  {
+    type: 'bail',
+    icon: Scale,
+    title: 'Bail Application',
+    description: 'Application for bail in criminal proceedings',
+  },
+  {
+    type: 'injunction',
+    icon: FileText,
+    title: 'Civil Injunction',
+    description: 'Application for temporary or permanent injunction',
+  },
+  {
+    type: 'writ',
+    icon: Gavel,
+    title: 'Writ Petition',
+    description: 'Constitutional remedy under Article 226/32',
+  },
+]
 
 export default function NewDraftPage() {
-    return (
-        <div className="p-6 max-w-4xl mx-auto space-y-8">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">New Draft</h1>
-                <p className="text-muted-foreground mt-1">
-                    Create a new legal document in three simple steps
-                </p>
-            </div>
+  const router = useRouter()
+  const [title, setTitle] = useState('')
+  const [selectedType, setSelectedType] = useState<DraftType | null>(null)
 
-            <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-                <NewDraftWizard />
-            </Suspense>
+  const createCaseMutation = useMutation({
+    mutationFn: async (data: { title: string; draftType: DraftType }) => {
+      return casesAPI.createCase(data)
+    },
+    onSuccess: (data) => {
+      toast.success('Case created successfully')
+      router.push(`/drafts/${data.id}/interrogate`)
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to create case'
+      toast.error(message)
+    },
+  })
+
+  const handleTypeSelect = (type: DraftType) => {
+    setSelectedType(type)
+  }
+
+  const handleContinue = () => {
+    // Validate title
+    if (!title.trim()) {
+      toast.error('Please enter a case title')
+      return
+    }
+
+    // Validate draft type selection
+    if (!selectedType) {
+      toast.error('Please select a draft type')
+      return
+    }
+
+    // Create case
+    createCaseMutation.mutate({
+      title: title.trim(),
+      draftType: selectedType,
+    })
+  }
+
+  const isLoading = createCaseMutation.isPending
+
+  return (
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+      <CLDIBreadcrumb />
+
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">New Draft</h1>
+        <p className="text-muted-foreground mt-1">
+          Select the type of legal document you want to create
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="case-title">Case Title</Label>
+          <Input
+            id="case-title"
+            placeholder="Enter a title for your case"
+            className="mt-1.5"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            disabled={isLoading}
+          />
         </div>
-    )
+
+        <div>
+          <Label className="mb-3 block">Draft Type</Label>
+          <div className="grid gap-4 md:grid-cols-3">
+            {draftTypes.map((draftType) => (
+              <DraftTypeCard
+                key={draftType.type}
+                icon={draftType.icon}
+                title={draftType.title}
+                description={draftType.description}
+                selected={selectedType === draftType.type}
+                onClick={() => handleTypeSelect(draftType.type)}
+                disabled={isLoading}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-4">
+          <Button
+            size="lg"
+            onClick={handleContinue}
+            disabled={isLoading || !title.trim() || !selectedType}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating Case...
+              </>
+            ) : (
+              'Continue to Fact Collection'
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
